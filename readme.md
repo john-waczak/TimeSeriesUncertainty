@@ -1,0 +1,5 @@
+# Time Series Analysis for IoT and Biometric Sensors
+
+
+*NOTES*:
+- It will be good to bring up the point that low-cost sensors come with highly conservative uncertainty estimates, if any at all. Further, as the prevalence of IOT and Biometrics sensing continues to dramatically increase (watches, rings, monitors, etc...), it will become increasingly important to optimize sampling rates for these device to maximize useful information that can be passed through a limited bandwidth sensing platform. For example, distributed LoRa-wan sensing networks place limits on the maximum packet size and transmission rate that can be used to move data from the sensing device to the data storage platform. Additionally one may want to optimize data sampling rates in order to preserve battery life for embedded systems. These limits tend to be far more restrictive than the maximum sampling rate of each individual sensor. Likewise, biometric sensors such as light based heart rate monitors optimize sampling rates to resolve reasonable heart rate ranges. 

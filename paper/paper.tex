@@ -1,0 +1,141 @@
+\documentclass[sensors,article,submit,moreauthors,pdftex]{Definitions/mdpi} 
+
+\usepackage{xcolor}
+
+%\usepackage{polyglossia}
+\usepackage{textgreek}
+
+% Set the main language to English
+%\setdefaultlanguage{english}
+
+% Set the other languages
+%\setotherlanguage{greek}
+%\setotherlanguage{arabic}
+
+% Set the fonts for each language
+%\newfontfamily\greekfont{GFS Artemisia}
+%\newfontfamily\arabicfont{DejaVu Sans}
+
+\firstpage{1} 
+\makeatletter 
+\setcounter{page}{\@firstpage} 
+\makeatother
+\pubvolume{1}
+\issuenum{1}
+\articlenumber{0}
+\pubyear{2021}
+\copyrightyear{2020}
+\datereceived{} 
+\dateaccepted{} 
+\datepublished{} 
+\hreflink{https://doi.org/} % If needed use \linebreak
+
+\Title{Time Series Analysis for IoT and Biometric Sensors}
+\TitleCitation{Time Series Analysis for IoT and Biometric Sensors}
+\newcommand{\orcidauthorA}{0000-0003-4265-9543}
+\Author{John Waczak$^{\dagger *}$, Bharana Fernando$^{\dagger}$, Lakitha O.H. Wijeratne$^{\dagger}$, David J. Lary$^{\dagger}$\orcidA{}, Adam Aker$^{\dagger}$, Shawhin Talebi$^{\dagger}$, John Sadler$^{\dagger}$, Tatiana Lary$^{\dagger}$, and Matthew D. Lary$^{\dagger}$}
+\AuthorNames{John Waczak, Bharana Fernando, Lakitha O.H. Wijeratne, David J. Lary, Adam Aker, Shawhin Talebi, John Sadler, Tatiana Lary and Matthew D. Lary}
+\AuthorCitation{Waczak, J.; Fernando, B.; Wijeratne, L.O.H.; Lary, D.J.; Aker, A.;   Talebi, S.; Sadler, J.; Lary, T.; Lary, M.D.}
+\corres{Correspondence: John.Waczak@utdallas.edu}
+\firstnote{Hanson Center for Space Sciences, University of Texas at Dallas, Richardson TX 75080, USA} 
+
+\abstract{
+With the proliferation in the use of low-cost sensors for a wide range of IoT and wearable biometric applications, a systematic approach to both quality control and performing comprehensive time series analysis has significant value. It is really useful to be able to answer some basic questions using \textit{just} the time series. What is the likely sensor uncertainty given this time series of observations? How frequently should observations be made to adequately resolve the usual temporal variability? How representative is a single observation of what one expects to see over a temporal (and spatial) window? This paper demonstrates how to answer these basic questions and provides an implementation as an open source code repository.
+}
+
+\keyword{Representativeness Uncertainty; Temporal Variogram; Characteristic Timescale} 
+
+
+
+\begin{document}
+
+\section{Introduction}
+
+\noindent A systematic analytic methodology for time series data can help us answer a variety of basic questions about the quality and characteristics of our data using just the time series. Such as: What is the likely sensor uncertainty given this time series of observations? How frequently should observations be made to adequately resolve the usual temporal variability? How representative is a single observation of what one expects to see over a temporal (and spatial) window? These and many more questions will be answered step-by-step in the sections that follow. Example code and data are provided for easy reuse.
+
+\section{Methods}
+
+\vspace{0.1in}
+
+\subsection{Nyquist-Shannon Sampling Theorem}
+
+The Nyquist-Shannon sampling theorem introduces a key concept in time-series analysis and signal processing \cite{nyquist1928certain, shannon1949communication, oppenheim1999discrete}. The theorem states that a continuous-time signal can be exactly reconstructed from its discrete-time samples, provided that the sampling rate is at least twice the highest frequency component present in the signal. This critical rate is known as the Nyquist rate \citep{stoelinga2019weather, wilks2019statistical}. The Nyquist-Shannon sampling theorem is important for designing sampling systems and analyzing sampled data because it tells us how to choose a sampling rate which does not lose information or cause aliasing.
+
+\subsection{Temporal Aliasing}
+
+Temporal aliasing is a phenomenon that occurs when a continuous-time signal is sampled at a rate that is insufficient to accurately capture its highest frequency components \citep{nyquist1928certain, shannon1949communication, oppenheim1999discrete, bracewell2000fourier}. If the sampling rate is lower than this critical value, the high-frequency components in the signal can \lq alias' or fold back into the lower-frequency range, causing distortions and inaccuracies in the reconstructed signal. To use an everyday example from urban air quality monitoring, if the characteristic time scale at which airborne particulates vary is around a minute and measurements are only taken every hour, the observation frequency is insufficient to accurately capture the highest frequency components of the variation in air quality.
+
+\subsection{Temporal Autocorrelation}
+
+Temporal autocorrelation, also known as serial correlation or time-lagged correlation, refers to the correlation or dependence of a time series variable on its \textit{own} past values \citep{chatfield1989analysis, box2015time, brockwell2002introduction, shumway2017time}. In other words, it is a measure of how closely related a variable at a given time is to its previous values in time. Temporal autocorrelation is an important concept in time series analysis and is often used to identify patterns and trends.
+
+\subsection{Temporal Variogram}
+
+A temporal variogram is a statistical technique used in time series analysis to evaluate temporal auto-correlation over time \citep{shumway2017time, brockwell2002introduction, genton2007separable, stein2005some}. The temporal variogram measures the average squared difference between pairs of observations as a function of the time lag between them. It helps in understanding the temporal patterns. The temporal variogram, $\gamma(\Delta t)$, is defined as the half of the expected squared differences between pairs of observations separated by a time lag \textit{$\Delta$t}:
+\begin{equation}
+    \gamma(\Delta t)=\frac{1}{2}E\left[(Z(t+\Delta t)-Z(t))^2\right]
+\end{equation}
+\noindent where \textit{Z(t)} is the value of the time series at time \textit{t},  \textit{Z(t+$\Delta$t)} is the value of the time series at time \textit{t+$\Delta$t}, and \textit{E} denotes the expected value. The temporal variogram quantifies the average dissimilarity between pairs of observations as a function of the time lag, \textit{$\Delta$t}. The temporal variogram can be empirically estimated from the observed time series data as:
+\begin{equation}
+    \hat{\gamma}(\Delta t)=\frac{1}{2N(\Delta t)}\sum^{N(\Delta t)}_{i=1}\left[ Z(t_i+\Delta t)-Z(t_i) \right]^2
+\end{equation}
+where \textit{N($\Delta$t)} is the number of observation pairs separated by the time lag \textit{$\Delta$t}, and the sum runs over all such pairs. The key parameters provided by a temporal variogram include:
+
+\begin{enumerate}
+    \item \textbf{Nugget}: For perfect measurements the value of the temporal variogram should approach zero as the time lag \textit{$\Delta$t} approaches zero. For real life observations the variogram y-axis intercept for a \textit{$\Delta$t} of zero is a measure of the inherent variability in the data, which is commonly referred to as \lq micro-scale' variation, and can be linked to small-scale temporal fluctuations such as those caused by measurement errors or other sources of random noise. So from just a raw time series the variogram analysis provides us with a useful objective estimate of the \textit{measurement errors}.
+    \item \textbf{Sill}: The stable value that the temporal variogram reaches as the time lag increases. It represents the overall temporal variability of the data, which is the sum of the nugget effect and the temporally structured variance.
+    \item \textbf{Range}: The time lag at which the temporal variogram reaches the sill and stops increasing. The range characterizes the time scale over which the autocorrelation in the data persists, beyond which the observations are considered to be temporally uncorrelated or independent. 
+\end{enumerate}
+The significance of these parameters lies in their ability to provide insights into the temporal structure of the data and to guide the selection of appropriate time scales at which air quality observations should be made.
+
+\vspace{0.1in}
+\noindent \textcolor{red}{*** John: Please add an example figure of a temporal variogram and edit the text to refer to it. Thanks ***}
+\vspace{0.1in}
+
+\subsection{Undersampling}
+
+Undersampling occurs when the sampling rate is too low, leading to loss of information and potentially aliasing. To deal with this we would need to increase the sampling rate, i.e. applying the Nyquist-Shannon sampling theorem to ensure adequate representation of the time series \citep{oppenheim1999discrete}. This corresponds to the earlier everyday example from urban air quality monitoring mentioned above, where if the characteristic time scale at which airborne particulates vary is around a minute and measurements are only taken every hour, the observation frequency is insufficient to accurately capture the highest frequency components of the variation in air quality. So we see that the range in a temporal variogram and the Nyquist frequency are related concepts but serve different purposes in time series analysis. The range in a temporal variogram represents the time scale over which the autocorrelation in the data persists. It characterizes the time lag at which the temporal variogram reaches the sill, beyond which the observations are considered to be temporally uncorrelated or independent.We should make observations at least twice as frequently as the timescale indicated by the variogram range.
+
+\subsection{Representativeness Uncertainty}
+
+The representativeness uncertainty helps us quantify the question of how representative a single observation is of what we might expect to see over a given temporal (or spatial) window. Representativeness uncertainty is the uncertainty that arises from the fact that a measured value at a specific location or time might not perfectly represent the true value for the larger spatial or temporal domain \citep{Lary2003, foken2006review, risbey2005framework, mckendry2002representativeness, helbig2010representativeness}. This uncertainty can result from factors such as variations in the spatial distribution of the variable being measured, limitations in the sampling strategy, or the scale of the analysis. Understanding and quantifying representativeness uncertainty is crucial for interpreting measurement data and making informed decisions based on the data. 
+
+A useful way to express representativeness uncertainty is to quantify the discrepancy between a measured value and the true value for the larger spatial or temporal domain \citep{Lary2003, draxler2004uncertainty, schindlbacher2008spatial, mcMillan2012hydrological, gao2016estimation}. This discrepancy can be expressed as a variance or a mean squared error, which can be further decomposed into various error sources, such as systematic errors and random errors. We define the representativeness uncertainty, $\sigma_{rep}$, i.e. the variation we expect to see in a variable \textit{Z} over a time window as:
+\begin{equation}
+    \sigma_{rep} = ADev(\Z_1, \ldots, Z_N) = \frac{1}{N}\sum_{j=1}^N \lvert Z_j-\overbar{Z} \rvert
+\end{equation}
+
+\vspace{0.1in}
+\noindent \textcolor{red}{*** John: Please add an example figure of a PDF and show the representativeness uncertainty and edit the text to refer to it. Thanks ***}
+
+\vspace{0.1in}
+
+\noindent \textcolor{red}{*** John: Please add the myriad of other approaches you mentioned. Thanks ***}
+\vspace{0.1in}
+
+
+
+
+\section{Results}
+
+\section{Discussion}
+
+\section{Conclusions}
+
+\vspace{6pt} 
+
+\authorcontributions{For research articles with several authors, a short paragraph specifying their individual contributions must be provided. The following statements should be used ``Conceptualization, D.J.L.; methodology, D.J.L.; software, D.J.L and J.W.; field deployment and preparation D.J.L., D.S. J.W., A.A., A.B., L.O. H. W., S.T., B.F., J.S., M.D.L., and T.L.; validation, D.J.L.; formal analysis, D.J.L.; investigation, D.J.L.; resources, D.J.L.; data curation, D.J.L., J.W., A.A. and L.O.H.W.; writing---original draft preparation, D.J.L.; writing---review and editing, D.J.L.; visualization, D.J.L.; supervision, D.J.L.; project administration, D.J.L.; funding acquisition, D.J.L.}
+
+\funding{This research was funded by the following grants: Support from the University of Texas at Dallas Office of Sponsored Programs, Dean of Natural Sciences and Mathematics, and Chair of the Physics Department are gratefully acknowledged. The authors acknowledge the OIT-Cyberinfrastructure Research Computing group at the University of Texas at Dallas and the TRECIS CC* Cyberteam (NSF 2019135) for providing HPC resources that contributed to this research.}
+
+\institutionalreview{Not applicable}
+
+\informedconsent{Not applicable}
+
+\conflictsofinterest{The authors declare no conflict of interest} 
+
+\reftitle{References}
+\externalbibliography{yes}
+\bibliography{references.bib}
+
+\end{document}
