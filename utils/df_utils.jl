@@ -90,16 +90,32 @@ end
 
 
 
-# window_idxs(i, N, Z::AbstractRegularTimeSeries) = window_idxs(i, N, Z.z)
 
+col_types_ips = Dict(
+    "dateTime"      => String,
+    "pc0_1"         => Int,
+    "pc0_3"         => Int,
+    "pc0_5"         => Int,
+    "pc1_0"         => Int,
+    "pc2_5"         => Int,
+    "pc5_0"         => Int,
+    "pc10_0"        => Int,
+    "pm0_1"         => Float64,
+    "pm0_3"         => Float64,
+    "pm0_5"         => Float64,
+    "pm1_0"         => Float64,
+    "pm2_5"         => Float64,
+    "pm5_0"         => Float64,
+    "pm10_0"        => Float64,
+    "date"          => Date,
+    "date_and_hour" => DateTime,
+)
 
-# # Now we should be able to easily compute the representativeness
-# function rolling_deviation(Z::AbstractRegularTimeSeries, Nwindow::Int; func=std)
-#     Δz = zeros(length(Z))
-#     for i ∈ 1:length(Z)
-#         Δz[i] = func(Z.z[window_idxs(i,Nwindow,Z)])
-#     end
-#     return Δz
-# end
-
-
+col_types_bme = Dict(
+    "dateTime"      => String,
+    "temperature"   => Float64,
+    "pressure"      => Float64,
+    "humidity"      => Float64,
+    "gas"           => Float64,
+    "date_and_hour" => DateTime,
+)

@@ -1,7 +1,12 @@
 using CSV, DataFrames
 using Statistics
 using TimeSeriesTools
-using Dates
+using Unitful
+using Dates, TimeZones
+using CairoMakie
+using ParameterHandling
+
+include("utils/df_utils.jl")
 
 basepath = "data/sharedair/raw"
 @assert ispath(basepath)
@@ -22,147 +27,191 @@ for node ∈ nodes_to_use
     end
 end
 
-test_f = data_paths["Central_Hub_1"]["IPS7100"][1]
-df = CSV.File(test_f) |> DataFrame
+
+path_ips = data_paths["Central_Hub_1"]["IPS7100"][2]
+path_bme = data_paths["Central_Hub_1"]["BME680"][2]
+
+df_ips = CSV.read(path_ips, DataFrame; types=col_types_ips)
+df_ips.dateTime = ZonedDateTime.(df_ips.dateTime)
+
+df_bme = CSV.read(path_bme, DataFrame;types=col_types_bme)
+df_bme.dateTime = ZonedDateTime.(df_bme.dateTime)
 
 
-# add year-month-day-hour column so we can group by hour
-gdf = groupby(df, :date_and_hour)
-
-# for each group, we want to compute:
-# variograms (nugget, range, partialsill, etc)
-# autocorrelation
-# self-mutual information
-# ideal embedding dimension
-# chaos stuff...
-# correlation
-
-# we should have a script for doing this on a single time series and another for doing it
-# for collecting the results on every csv for each sensor for two different years
-names(df)
-df.date_and_hour[1]
-df.dateTime[1]
+# use PM 1.0, 2.5, 10.0 as examples:
+typeof(df_ips.pm0_1) <: AbstractVector
 
 
 
-# using Distributed, ClusterManagers
-# using DTables
-# using CSV, DataFrames
+Zpm1 = RegularTimeSeries(
+    df_ips.pm1_0,
+    1.0,
+    u"μg/m^3",
+    u"s",
+    df_ips.dateTime[1]
+)
 
-# using Statistics, OnlineStats
-
-
-# include("utils/osn_anonymous.jl")
-# include("utils/df_utils.jl")
-
-# if "SLURM_JOBID" ∈ keys(ENV)
-#     @info "Working on a slurm cluster"
-#     addprocs_slurm(parse(Int, ENV["SLURM_NTASKS"])-1, exeflags="--project=$(Base.active_project())")
-# else
-#     @info "Working locally"
-#     addprocs(Threads.nthreads(), exeflags="--project=$(Base.active_project())")
-# end
+Zpm25 = RegularTimeSeries(
+    df_ips.pm2_5,
+    1.0,
+    u"μg/m^3",
+    u"s",
+    df_ips.dateTime[1]
+)
 
 
-# basepath = "data/sharedair/raw"
-# @assert ispath(basepath)
+Zpm10 = RegularTimeSeries(
+    df_ips.pm10_0,
+    1.0,
+    u"μg/m^3",
+    u"s",
+    df_ips.dateTime[1]
+)
 
-# # filepath is: basepath/node/sensor/*.csv
-
-# nodes_to_use = ["Central_Hub_1", "Central_Hub_2", "Central_Hub_4"]
-# sensors_to_use = ["IPS7100", "BME680"]
-
-
-# # construct a DTable for each hub for each sensor over all observations.
-# file_lists = Dict()
-# for node ∈ nodes_to_use
-#     file_lists[node] = Dict()
-#     for sensor ∈ sensors_to_use
-#         file_lists[node][sensor] = [f for f ∈ joinpath.(basepath, readdir(joinpath(basepath, node, sensor))) if endswith(f, ".csv")]
-#     end
-# end
+Ztemp = RegularTimeSeries(
+    df_bme.temperature,
+    10.0,
+    u"°C",
+    u"s",
+    df_bme.dateTime[1]
+)
 
 
-# DTable_dict = Dict()
-# for node ∈ nodes_to_use
-#     DTable_dict[node] = Dict()
-#     for sensor ∈ sensors_to_use
-#         DTable_dict[node][sensor] = DTable(x->CSV.File(x), file_lists[node][sensor])
-#     end
-# end
+f = Figure()
+ax = Axis(f[1,1], xlabel="time / (hour)\n$(Date(Zpm1.start_time))", ylabel="concentration / (μgm⁻³)")
+pm10=lines!(ax, times(Zpm10)./(60*60), Zpm10.z)
+pm25=lines!(ax, times(Zpm25)./(60*60), Zpm25.z)
+pm1=lines!(ax, times(Zpm1)./(60*60), Zpm1.z)
+leg = axislegend(ax, [pm1, pm25, pm10], ["PM 1.0", "PM 2.5", "PM 10.0"])
+f
 
+figures_path = "paper/figures/single-day"
+if !ispath(figures_path)
+    mkpath(figures_path)
+end
 
-# DTable_dict["Central_Hub_1"]["IPS7100"]
+save(joinpath(figures_path, "IPS_single-day.png"), f)
+save(joinpath(figures_path, "IPS_single-day.pdf"), f)
+save(joinpath(figures_path, "IPS_single-day.eps"), f)
 
+f = Figure()
+ax = Axis(f[1,1], xlabel="time / (hour)\n$(Date(Ztemp.start_time))", ylabel="Temperature / (°C)")
+temp=lines!(ax, times(Ztemp)./(60*60), Ztemp.z)
+f
 
-# # create column for year-month-day-hour and then group by it
-# # for each hour, compute variogram(s), pdf, etc... and save output to new table.
-
-
-# N = 1000
-# df = DataFrame(a=rand(1:4, N), b=rand('a':'d', N))
-
-# dt = DTable(df, 100)  # partition into 100 row chunks
-
-# println("N chunks: ", size(dt.chunks))
-
-# collect(dt.chunks[1])
-# fetch(dt)
-# tabletype(dt)
-
-
-# # some simple operations
-# fetch(map(row->(;c=repr(row.a)*row.b), dt))
-# fetch(reduce(*, dt))
-# fetch(reduce(+, map(row->(;a=row.a), dt)))
-# fetch(filter(row->row.b == 'd', dt))  # keep only rows where colum b has value d
-
-# # GroupBy syntax
-# gdt = groupby(dt, :b)
-# gdt['c']
-# fetch(gdt['c'])
-
-# # loop over keys in grouped dataframe
-# for (key, t) ∈ gdt
-#     @show key first(fetch(t))
-# end
-
-
-# # CSVs
-# @everywhere using CSV  # need to load packages everywhere
-
-# df |> CSV.write("test.csv")
-# df2 = CSV.File("test.csv") |> DataFrame
-
-# # load directly to DTable
-# dt2 = CSV.File("test.csv") |> DTable
-
-# # verify they're the same
-# DataFrame(dt2) == df2
-
-# # writing directly from the DTable
-# dt2 |> CSV.write("test2.csv")
-# DataFrame(CSV.File("test2.csv")) == DataFrame(dt2)
-
-# # loading multiple CSVs
-# df |> CSV.write("test3.csv")
-# dt3 = DTable(x->CSV.File(x), ["test.csv", "test2.csv", "test3.csv"])
-# DataFrame(dt3) == vcat(df2, df2, df2)
-
-# tabletype!(dt3)
+save(joinpath(figures_path, "BME_single-day.png"), f)
+save(joinpath(figures_path, "BME_single-day.pdf"), f)
+save(joinpath(figures_path, "BME_single-day.eps"), f)
 
 
 
+function fit_my_variograms(Z, name)
+    γ, h = semivariogram(Z, lag_max=15*60)
 
-# test_path = joinpath(basepath, nodes_to_use[1], sensors_to_use[1])
-# test_path = joinpath(test_path, readdir(test_path)[1])
+    # γ_params = get_reasonable_params(γ,h)
+    # θ₀, unflatten = ParameterHandling.value_flatten(γ_params)
+    # θ = unflatten(θ₀)
 
-# df = CSV.File(test_path) |> DataFrame
-# names(df)
-# df.dt = date2datetime.(df.dateTime)
-# df.date = Date.(df.dt)
+    idx_fit = (h ./ 60.0) .≤ 10.0
 
 
-# df.date_and_hour = Dates.format.(df.dt, dateformat"yyyy-mm-yyTHH")
+    γ_fit_spherical = fit_γ(h[idx_fit], γ[idx_fit]; method=:spherical)
+    γ_fit_exponential = fit_γ(h[idx_fit], γ[idx_fit]; method=:exponential)
+    γ_fit_gaussian = fit_γ(h[idx_fit], γ[idx_fit]; method=:gaussian)
+    γ_fit_circular = fit_γ(h[idx_fit], γ[idx_fit]; method=:circular)
+    γ_fit_cubic = fit_γ(h[idx_fit], γ[idx_fit]; method=:cubic)
+    γ_fit_linear = fit_γ(h[idx_fit], γ[idx_fit]; method=:linear)
+    γ_fit_pentaspherical = fit_γ(h[idx_fit], γ[idx_fit]; method=:pentaspherical)
+    γ_fit_sinehole = fit_γ(h[idx_fit], γ[idx_fit]; method=:sinehole)
 
-# DateTime(year(df.dt[1]), month(df.dt[1]), day(df.dt[1]), hour(df.dt[1]))
+    println("\t...plotting")
+    fig = Figure()
+    ax = Axis(
+        fig[1,1],
+        xlabel = "Δt (minutes)",
+        ylabel = "γ(Δt)",
+        title = "Variogram fit for $(name)"
+    )
+
+    s1 = scatter!(
+        ax,
+        h[idx_fit] ./ 60.0,
+        γ[idx_fit],
+        color=(:gray, 0.75),
+        markersize = 8,
+    )
+
+    p1 = lines!(
+        h[idx_fit] ./ 60.0,
+        γ_fit_spherical.(h[idx_fit]),
+        linewidth=3,
+    )
+
+    p2 = lines!(
+        h[idx_fit] ./ 60.0,
+        γ_fit_exponential.(h[idx_fit]),
+        linewidth=3,
+    )
+
+    p3 = lines!(
+        h[idx_fit] ./ 60.0,
+        γ_fit_gaussian.(h[idx_fit]),
+        linewidth=3,
+    )
+
+    p4 = lines!(
+        h[idx_fit] ./ 60.0,
+        γ_fit_circular.(h[idx_fit]),
+        linewidth=3,
+    )
+
+    p5 = lines!(
+        h[idx_fit] ./ 60.0,
+        γ_fit_cubic.(h[idx_fit]),
+        linewidth=3,
+    )
+
+    p6 = lines!(
+        h[idx_fit] ./ 60.0,
+        γ_fit_linear.(h[idx_fit]),
+        linewidth=3,
+    )
+
+    p7 = lines!(
+        h[idx_fit] ./ 60.0,
+        γ_fit_pentaspherical.(h[idx_fit]),
+        linewidth=3,
+    )
+
+    p8 = lines!(
+        h[idx_fit] ./ 60.0,
+        γ_fit_sinehole.(h[idx_fit]),
+        linewidth=3,
+    )
+
+    L = axislegend(
+        ax,
+        [s1, p1, p2, p3, p4, p5, p6, p7, p8],
+        ["empirical", "spherical model", "exponential model", "gaussian model", "circular model", "cubic model", "linear model", "pentaspherical model", "sine hole model"];
+        position=:rc
+    )
+
+    save(joinpath(figures_path, "γ-$(name)_single-day.png"), fig)
+    save(joinpath(figures_path, "γ-$(name)_single-day.eps"), fig)
+    save(joinpath(figures_path, "γ-$(name)_single-day.pdf"), fig)
+
+end
+
+
+Zs = [Zpm1, Zpm25, Zpm10, Ztemp]
+varnames = ["PM 1.0", "PM 2.5", "PM 10.0", "Temperature"]
+
+for i ∈ 1:length(Zs)
+    let
+        Z = Zs[i]
+        varname = varnames[i]
+        fit_my_variograms(Z, varname)
+    end
+end
+
+
