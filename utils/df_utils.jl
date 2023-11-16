@@ -1,61 +1,80 @@
-using Dates
-using TimeZones
+# data sheets for inst uncertainty:
+# ips7100: https://pierasystems.com/wp-content/uploads/2023/09/IPS-Datasheet-V1.3.7.pdf
+# bme280: https://www.mouser.com/datasheet/2/783/BST-BME280-DS002-1509607.pdf
+# bme680: https://www.mouser.com/datasheet/2/783/BST_BME680_DS001-1509608.pdf
+
+
+
+ips_types = Dict(
+    "dateTime"      => String,
+    "pc0_1"         => Int,
+    "pc0_3"         => Int,
+    "pc0_5"         => Int,
+    "pc1_0"         => Int,
+    "pc2_5"         => Int,
+    "pc5_0"         => Int,
+    "pc10_0"        => Int,
+    "pm0_1"         => Float64,
+    "pm0_3"         => Float64,
+    "pm0_5"         => Float64,
+    "pm1_0"         => Float64,
+    "pm2_5"         => Float64,
+    "pm5_0"         => Float64,
+    "pm10_0"        => Float64,
+)
+
+bme280_types = Dict(
+    "dateTime"      => String,
+    "temperature"   => Float64,
+    "pressure"      => Float64,
+    "humidity"      => Float64,
+    "altitude"      => Float64,
+)
+
+bme680_types = Dict(
+    "dateTime"      => String,
+    "temperature"   => Float64,
+    "pressure"      => Float64,
+    "humidity"      => Float64,
+    "gas"      => Float64,
+)
 
 
 
 
-function date2datetime(dt::AbstractString; timezone=tz"UTC")
-    df = dateformat"yyyy-mm-dd HH:MM:SS.sss"
-    df2 = dateformat"yyyy-mm-dd HH:MM:SS"
+function parse_datetime(dt::String)
+    # split into Date and Time
+    ymd, hms = split(dt, " ")
 
-    dt_string = strip(String(dt))
-    dt_split = split(dt_string, ".")
+    # split Date into year,month, day
+    y,m,d = parse.(Int, split(ymd, "-"))
 
-    if length(dt_split) > 1
-        dt_out = join([dt_split[1], dt_split[2][1:end-3]], ".")
-        zdt = ZonedDateTime(DateTime(dt_out, df), timezone)
-    else
-        dt_out = dt_split[1]
-        zdt = ZonedDateTime(DateTime(dt_out, df2), timezone)
+    # split Time into hour, minute, second
+    h,min,s = split(hms, ":")
+    h = parse(Int, h)
+    min = parse(Int, min)
+
+    # get seconds and milliseconds
+    s = parse(Float64, s)
+    s = round(s, digits=3)
+
+    # handle edge case
+    if s == 60.000
+        s = 59.999
     end
 
-    return zdt
+    s,milli = parse.(Int, split("$(s)", "."))
+
+    return DateTime(y,m,d,h,min,s,milli)
+end
+
+function parse_datetime!(df::DataFrame)
+    df.dateTime = parse_datetime.(df.dateTime)
 end
 
 
 
-function add_datetime_to_df!(df)
-    dts = Vector{ZonedDateTime}(undef, nrow(df))
 
-    is_row_ok = [true for _ ∈ 1:nrow(df)]
-    bad_counter = 1
-    for i ∈ 1:nrow(df)
-        try
-            dts[i] = date2datetime(df.dateTime[i])
-        catch e
-            is_row_ok[i] = false
-            dts[i] = ZonedDateTime(2000, 1, 1, 1, tz"UTC")
-            if bad_counter ≤ 1
-                println(e)
-            end
-            bad_counter += 1
-        end
-    end
-
-
-    # drop bad rows
-
-    if sum(is_row_ok) != nrow(df)
-        println("\t% of bad rows: ", 100.0*(nrow(df) - sum(is_row_ok))/nrow(df))
-        idx_good = findfirst(x->x==true, is_row_ok)
-        idx_bad = findfirst(x->x==false, is_row_ok)
-        println("\t\tfirst good row: ", df.dateTime[idx_good])
-        println("\t\tfirst bad row: ", df.dateTime[idx_bad])
-    end
-
-    df.dateTime .= dts
-    df = df[is_row_ok, :]
-end
 
 
 
@@ -90,32 +109,3 @@ end
 
 
 
-
-col_types_ips = Dict(
-    "dateTime"      => String,
-    "pc0_1"         => Int,
-    "pc0_3"         => Int,
-    "pc0_5"         => Int,
-    "pc1_0"         => Int,
-    "pc2_5"         => Int,
-    "pc5_0"         => Int,
-    "pc10_0"        => Int,
-    "pm0_1"         => Float64,
-    "pm0_3"         => Float64,
-    "pm0_5"         => Float64,
-    "pm1_0"         => Float64,
-    "pm2_5"         => Float64,
-    "pm5_0"         => Float64,
-    "pm10_0"        => Float64,
-    "date"          => Date,
-    "date_and_hour" => DateTime,
-)
-
-col_types_bme = Dict(
-    "dateTime"      => String,
-    "temperature"   => Float64,
-    "pressure"      => Float64,
-    "humidity"      => Float64,
-    "gas"           => Float64,
-    "date_and_hour" => DateTime,
-)

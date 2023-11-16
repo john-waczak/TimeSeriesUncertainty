@@ -1,45 +1,201 @@
 using CSV, DataFrames
 using Statistics
-using TimeSeriesTools
 using Unitful
 using Dates, TimeZones
+using BenchmarkTools
+
 using CairoMakie
+using MintsMakieRecipes
+set_theme!(mints_theme)
+update_theme!(
+    figure_padding=30,
+    Axis=(
+        xticklabelsize=20,
+        yticklabelsize=20,
+        xlabelsize=22,
+        ylabelsize=22,
+        titlesize=25,
+    ),
+    Colorbar=(
+        ticklabelsize=20,
+        labelsize=22
+    )
+)
+
+
+using Pkg
+Pkg.add(url="https://github.com/john-waczak/TimeSeriesTools.jl.git")
+using TimeSeriesTools
 using ParameterHandling
+
 
 include("utils/df_utils.jl")
 
-basepath = "data/sharedair/raw"
-@assert ispath(basepath)
 
-outpath = "data/sharedair/processed"
+basepath = "/media/jwaczak/Data/aq-data/raw"
+outpath = "/media/jwaczak/Data/aq-data/processed"
 if !ispath(outpath)
     mkpath(outpath)
 end
 
-nodes_to_use = ["Central_Hub_1", "Central_Hub_2", "Central_Hub_4"]
-sensors_to_use = ["IPS7100", "BME680"]
 
-data_paths = Dict()
-for node ∈ nodes_to_use
-    data_paths[node] = Dict()
-    for sensor ∈ sensors_to_use
-        data_paths[node][sensor] = joinpath.(basepath, node, sensor, [f for f ∈ readdir(joinpath(basepath, node, sensor)) if endswith(f, ".csv")])
+datapath_ips = joinpath(basepath, "IPS7100", "Central_Hub_1")
+datapath_bme680= joinpath(basepath, "BME680", "Central_Hub_1")
+datapath_bme280= joinpath(basepath, "BME280", "Central_Hub_1")
+
+@assert ispath(datapath_ips)
+@assert ispath(datapath_bme680)
+@assert ispath(datapath_bme280)
+
+
+
+
+
+# let's fetch files foe each type
+year = "2022"
+month = "06"
+day = "20"
+
+
+ips_paths = joinpath.(datapath_ips, year, month, day, readdir(joinpath(datapath_ips, year, month, day)))
+bme280_paths = joinpath.(datapath_bme280, year, month, day, readdir(joinpath(datapath_bme280, year, month, day)))
+bme680_paths = joinpath.(datapath_bme680, year, month, day, readdir(joinpath(datapath_bme680, year, month, day)))
+
+@assert all(ispath.(ips_paths))
+@assert all(ispath.(bme280_paths))
+@assert all(ispath.(bme680_paths))
+
+df_ips = CSV.read(ips_paths[1], DataFrame; types=ips_types)
+df_bme280 = CSV.read(bme280_paths[1], DataFrame; types=bme280_types)
+df_bme680 = CSV.read(bme680_paths[1], DataFrame; types=bme680_types)
+
+
+parse_datetime!(df_ips)
+parse_datetime!(df_bme280)
+parse_datetime!(df_bme680)
+
+
+# let's now find out the correct sample rate for each sensor and round the DateTimes accordingly
+Δt_ips = mean([(df_ips.dateTime[i+1] - df_ips.dateTime[i]).value for i ∈ 1:(nrow(df_ips)-1)])./1000
+Δt_bme280 = mean([(df_bme280.dateTime[i+1] - df_bme280.dateTime[i]).value for i ∈ 1:(nrow(df_bme280)-1)])./1000
+Δt_bme680 = mean([(df_bme680.dateTime[i+1] - df_bme680.dateTime[i]).value for i ∈ 1:(nrow(df_bme680)-1)])./1000
+
+println("mean IPS7100 Δt: ", Δt_ips, " (s)")
+println("mean BME280 Δt: ", Δt_bme280, " (s)")
+println("mean BME680 Δt: ", Δt_bme680, " (s)")
+
+# so, 1 Hz for IPS7100 and 0.1 Hz for BME680, BME280
+df_ips.dateTime = round.(df_ips.dateTime, Second(1))
+df_bme280.dateTime = round.(df_bme280.dateTime, Second(10))
+df_bme680.dateTime = round.(df_bme680.dateTime, Second(10))
+
+# let's construct some histograms of differences
+
+hist([v.value for v ∈ df_ips.dateTime[2:end] .- df_ips.dateTime[1:end-1]]./1000)
+hist([v.value for v ∈ df_bme280.dateTime[2:end] .- df_bme280.dateTime[1:end-1]]./1000)
+hist([v.value for v ∈ df_bme680.dateTime[2:end] .- df_bme680.dateTime[1:end-1]]./1000)
+
+# so clearly we don't have "nice" data. Our variogram probably shouldn't assume uniform spacing
+
+# let's add a column for each 10 minute window. We can compute the variogram, representativeness, etc for each window
+df_ips.minutes_10 = [(round(df_ips.dateTime[i] - df_ips.dateTime[1], Minute(90))).value for i ∈ 1:nrow(df_ips)]
+df_bme280.minutes_10 = [(round(df_bme280.dateTime[i] - df_bme280.dateTime[1], Minute(90))).value for i ∈ 1:nrow(df_bme280)]
+df_bme680.minutes_10 = [(round(df_bme680.dateTime[i] - df_bme680.dateTime[1], Minute(90))).value for i ∈ 1:nrow(df_bme680)]
+
+# add another column for seconds since start
+df_ips.s_since_start = [(df_ips.dateTime[i] - df_ips.dateTime[1]).value / 1000 for i ∈ 1:nrow(df_ips)]
+df_bme280.s_since_start = [(df_bme280.dateTime[i] - df_bme280.dateTime[1]).value / 1000 for i ∈ 1:nrow(df_bme280)]
+df_bme680.s_since_start = [(df_bme680.dateTime[i] - df_bme680.dateTime[1]).value / 1000 for i ∈ 1:nrow(df_bme680)]
+
+
+# group the dfs by the minutes_10 column
+gdf_ips = groupby(df_ips, :minutes_10)
+
+
+
+
+Zs = gdf_ips[1].pm2_5
+ts = gdf_ips[1].s_since_start
+
+
+function iuppert(k::Int,n::Int)
+    i = n - 1 - floor(Int,sqrt(-8*k + 4*n*(n-1) + 1)/2 - 0.5)
+    j = k + i + ( (n-i+1)*(n-i) - n*(n-1) )÷2
+    return i, j
+end
+
+function make_pairs(N)
+    ij_pairs = zeros(Int, Int(N*(N-1)/2), 2)
+
+    Threads.@threads for k ∈ 1:Int(N*(N-1)/2)
+        @inbounds ij_pairs[k, 1] = N - 1 - floor(Int,sqrt(-8*k + 4*N*(N-1) + 1)/2 - 0.5)
+        @inbounds ij_pairs[k, 2] = k + ij_pairs[k,1] + ( (N-ij_pairs[k,1]+1)*(N-ij_pairs[k,1]) - N*(N-1) )÷2
+    end
+    return ij_pairs
+end
+
+# @benchmark ij_pairs = make_pairs(N)
+
+Nmin = 20
+
+N = length(ts)
+ij_pairs = make_pairs(N)
+
+# compute time lags
+
+Δts = abs.(ts[ij_pairs[:,1]] .- ts[ij_pairs[:,2]])
+lag_vals = unique(Δts)
+
+lag_vals
+
+ks = findall(Δts .== 1.0)
+
+
+
+
+# add the values from our bins
+hs = Float64[]
+γs = Float64[]
+for Δt ∈ lag_vals
+    if Δt > 0
+        ks = findall(Δts .== Δt)
+        if length(ks) > Nmin
+            push!(γs, mean((Zs[ij_pairs[ks, 1]] .- Zs[ij_pairs[ks,2]]).^2)/2)
+            push!(hs, Δt)
+        end
     end
 end
 
 
-path_ips = data_paths["Central_Hub_1"]["IPS7100"][2]
-path_bme = data_paths["Central_Hub_1"]["BME680"][2]
+scatter(hs./60, γs)
 
-df_ips = CSV.read(path_ips, DataFrame; types=col_types_ips)
-df_ips.dateTime = ZonedDateTime.(df_ips.dateTime)
 
-df_bme = CSV.read(path_bme, DataFrame;types=col_types_bme)
-df_bme.dateTime = ZonedDateTime.(df_bme.dateTime)
+
+# round time lag to nearest Δt?
+unique(Δts)
+
+# sort keeping all lags with minimum number of points
+N_per_bin = 30
+
+
+
+
+
+
+
+for (key, df) ∈ pairs(gdf_ips)
+    println(key)
+end
+
+
+function semivariogram(ts; lag_ratio=0.5, lag_max=100.0)
+end
+
 
 
 # use PM 1.0, 2.5, 10.0 as examples:
 typeof(df_ips.pm0_1) <: AbstractVector
+
 
 
 
