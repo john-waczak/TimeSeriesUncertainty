@@ -3,7 +3,7 @@
 # bme280: https://www.mouser.com/datasheet/2/783/BST-BME280-DS002-1509607.pdf
 # bme680: https://www.mouser.com/datasheet/2/783/BST_BME680_DS001-1509608.pdf
 
-
+using DataInterpolations
 
 ips_types = Dict(
     "dateTime"      => String,
@@ -76,36 +76,34 @@ end
 
 
 
+function process_ips7100(df)
+    Δt = 1.0 # 1 Hz sample frequency
+
+    t_start = round(df.dateTime[1], Second(1), RoundUp)
+    ts = [t.value ./ 1000 for t ∈ df.dateTime .- t_start]
+    t_end = round(ts[end], RoundDown)
+
+    df_out = DataFrame()
+    df_out.datetime = t_start .+ Second.(0.0:Δt:t_end)
 
 
-function window_idxs(i, N, Z::AbstractVector)
-    if N > length(Z)
-        thow(ArgumentError("N must be less than length of data"))
+    for j ∈ 2:ncol(df_ips)
+        colname = names(df_ips)[j]
+        Z = Float64.(df_ips[!,j])
+        #itp = CubicSpline(Z, ts)
+        itp = LinearInterpolation(Z, ts)
+
+        Zout = itp(0.0:Δt:t_end)
+
+        if occursin("pc", colname)
+            Zout = round.(Int, Zout)
+        end
+
+
+        df_out[!, colname] = Zout
     end
 
-    n = Int((N-1)/2)
+    df_out.datetime_quarterhour = round.(df_out.datetime, Minute(15))
 
-    idx_out = i-n:i+n
-
-    # handle edge cases
-    if idx_out[1] < 1
-        offset = 1-idx_out[1]
-        idx_out = idx_out .+ offset
-    end
-
-    if idx_out[end] > length(Z)
-        offset = idx_out[end] - length(Z)
-        idx_out = idx_out .- offset
-    end
-
-    return idx_out
+    return df_out
 end
-
-
-function mean_dev(Z::AbstractVector)
-    μ = mean(Z)
-    return sum(abs.(Z .- μ))/length(Z)
-end
-
-
-

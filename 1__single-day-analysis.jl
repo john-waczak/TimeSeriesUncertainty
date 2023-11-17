@@ -30,6 +30,7 @@ using ParameterHandling
 
 
 include("utils/df_utils.jl")
+include("utils/variograms.jl")
 
 
 basepath = "/media/jwaczak/Data/aq-data/raw"
@@ -37,6 +38,8 @@ outpath = "/media/jwaczak/Data/aq-data/processed"
 if !ispath(outpath)
     mkpath(outpath)
 end
+
+
 
 
 datapath_ips = joinpath(basepath, "IPS7100", "Central_Hub_1")
@@ -70,115 +73,14 @@ df_bme280 = CSV.read(bme280_paths[1], DataFrame; types=bme280_types)
 df_bme680 = CSV.read(bme680_paths[1], DataFrame; types=bme680_types)
 
 
-parse_datetime!(df_ips)
-parse_datetime!(df_bme280)
-parse_datetime!(df_bme680)
-
-
-# let's now find out the correct sample rate for each sensor and round the DateTimes accordingly
-Δt_ips = mean([(df_ips.dateTime[i+1] - df_ips.dateTime[i]).value for i ∈ 1:(nrow(df_ips)-1)])./1000
-Δt_bme280 = mean([(df_bme280.dateTime[i+1] - df_bme280.dateTime[i]).value for i ∈ 1:(nrow(df_bme280)-1)])./1000
-Δt_bme680 = mean([(df_bme680.dateTime[i+1] - df_bme680.dateTime[i]).value for i ∈ 1:(nrow(df_bme680)-1)])./1000
-
-println("mean IPS7100 Δt: ", Δt_ips, " (s)")
-println("mean BME280 Δt: ", Δt_bme280, " (s)")
-println("mean BME680 Δt: ", Δt_bme680, " (s)")
-
-# so, 1 Hz for IPS7100 and 0.1 Hz for BME680, BME280
-df_ips.dateTime = round.(df_ips.dateTime, Second(1))
-df_bme280.dateTime = round.(df_bme280.dateTime, Second(10))
-df_bme680.dateTime = round.(df_bme680.dateTime, Second(10))
-
-# let's construct some histograms of differences
-
-hist([v.value for v ∈ df_ips.dateTime[2:end] .- df_ips.dateTime[1:end-1]]./1000)
-hist([v.value for v ∈ df_bme280.dateTime[2:end] .- df_bme280.dateTime[1:end-1]]./1000)
-hist([v.value for v ∈ df_bme680.dateTime[2:end] .- df_bme680.dateTime[1:end-1]]./1000)
-
-# so clearly we don't have "nice" data. Our variogram probably shouldn't assume uniform spacing
-
-# let's add a column for each 10 minute window. We can compute the variogram, representativeness, etc for each window
-df_ips.minutes_10 = [(round(df_ips.dateTime[i] - df_ips.dateTime[1], Minute(90))).value for i ∈ 1:nrow(df_ips)]
-df_bme280.minutes_10 = [(round(df_bme280.dateTime[i] - df_bme280.dateTime[1], Minute(90))).value for i ∈ 1:nrow(df_bme280)]
-df_bme680.minutes_10 = [(round(df_bme680.dateTime[i] - df_bme680.dateTime[1], Minute(90))).value for i ∈ 1:nrow(df_bme680)]
-
-# add another column for seconds since start
-df_ips.s_since_start = [(df_ips.dateTime[i] - df_ips.dateTime[1]).value / 1000 for i ∈ 1:nrow(df_ips)]
-df_bme280.s_since_start = [(df_bme280.dateTime[i] - df_bme280.dateTime[1]).value / 1000 for i ∈ 1:nrow(df_bme280)]
-df_bme680.s_since_start = [(df_bme680.dateTime[i] - df_bme680.dateTime[1]).value / 1000 for i ∈ 1:nrow(df_bme680)]
-
-
-# group the dfs by the minutes_10 column
-gdf_ips = groupby(df_ips, :minutes_10)
+# 1 Hz for IPS7100 and 0.1 Hz for BME680, BME280
+# df_ips.dateTime = round.(df_ips.dateTime, Second(1))
+# df_bme280.dateTime = round.(df_bme280.dateTime, Second(10))
+# df_bme680.dateTime = round.(df_bme680.dateTime, Second(10))
 
 
 
-
-Zs = gdf_ips[1].pm2_5
-ts = gdf_ips[1].s_since_start
-
-
-function iuppert(k::Int,n::Int)
-    i = n - 1 - floor(Int,sqrt(-8*k + 4*n*(n-1) + 1)/2 - 0.5)
-    j = k + i + ( (n-i+1)*(n-i) - n*(n-1) )÷2
-    return i, j
-end
-
-function make_pairs(N)
-    ij_pairs = zeros(Int, Int(N*(N-1)/2), 2)
-
-    Threads.@threads for k ∈ 1:Int(N*(N-1)/2)
-        @inbounds ij_pairs[k, 1] = N - 1 - floor(Int,sqrt(-8*k + 4*N*(N-1) + 1)/2 - 0.5)
-        @inbounds ij_pairs[k, 2] = k + ij_pairs[k,1] + ( (N-ij_pairs[k,1]+1)*(N-ij_pairs[k,1]) - N*(N-1) )÷2
-    end
-    return ij_pairs
-end
-
-# @benchmark ij_pairs = make_pairs(N)
-
-Nmin = 20
-
-N = length(ts)
-ij_pairs = make_pairs(N)
-
-# compute time lags
-
-Δts = abs.(ts[ij_pairs[:,1]] .- ts[ij_pairs[:,2]])
-lag_vals = unique(Δts)
-
-lag_vals
-
-ks = findall(Δts .== 1.0)
-
-
-
-
-# add the values from our bins
-hs = Float64[]
-γs = Float64[]
-for Δt ∈ lag_vals
-    if Δt > 0
-        ks = findall(Δts .== Δt)
-        if length(ks) > Nmin
-            push!(γs, mean((Zs[ij_pairs[ks, 1]] .- Zs[ij_pairs[ks,2]]).^2)/2)
-            push!(hs, Δt)
-        end
-    end
-end
-
-
-scatter(hs./60, γs)
-
-
-
-# round time lag to nearest Δt?
-unique(Δts)
-
-# sort keeping all lags with minimum number of points
-N_per_bin = 30
-
-
-
+df_out = process_ips7100(df_ips)
 
 
 
@@ -188,76 +90,24 @@ for (key, df) ∈ pairs(gdf_ips)
 end
 
 
-function semivariogram(ts; lag_ratio=0.5, lag_max=100.0)
-end
+
+# group the dfs by the minutes_10 column
+gdf_ips = groupby(df_out, :datetime_quarterhour)
+Zs = gdf_ips[2].pm2_5[:]
+# Zs = df_ips.pm2_5[:]
+Δt = 1.0
+length(Zs) ./ 60
+ts
+60*60/Δt
+length(Zs) * Δt
+
+γ, h = semivariogram(Zs, Δt; lag_max=5*60, lag_ratio=1.0)
+scatter(h ./ (60 ), γ)
 
 
 
-# use PM 1.0, 2.5, 10.0 as examples:
-typeof(df_ips.pm0_1) <: AbstractVector
 
 
-
-
-Zpm1 = RegularTimeSeries(
-    df_ips.pm1_0,
-    1.0,
-    u"μg/m^3",
-    u"s",
-    df_ips.dateTime[1]
-)
-
-Zpm25 = RegularTimeSeries(
-    df_ips.pm2_5,
-    1.0,
-    u"μg/m^3",
-    u"s",
-    df_ips.dateTime[1]
-)
-
-
-Zpm10 = RegularTimeSeries(
-    df_ips.pm10_0,
-    1.0,
-    u"μg/m^3",
-    u"s",
-    df_ips.dateTime[1]
-)
-
-Ztemp = RegularTimeSeries(
-    df_bme.temperature,
-    10.0,
-    u"°C",
-    u"s",
-    df_bme.dateTime[1]
-)
-
-
-f = Figure()
-ax = Axis(f[1,1], xlabel="time / (hour)\n$(Date(Zpm1.start_time))", ylabel="concentration / (μgm⁻³)")
-pm10=lines!(ax, times(Zpm10)./(60*60), Zpm10.z)
-pm25=lines!(ax, times(Zpm25)./(60*60), Zpm25.z)
-pm1=lines!(ax, times(Zpm1)./(60*60), Zpm1.z)
-leg = axislegend(ax, [pm1, pm25, pm10], ["PM 1.0", "PM 2.5", "PM 10.0"])
-f
-
-figures_path = "paper/figures/single-day"
-if !ispath(figures_path)
-    mkpath(figures_path)
-end
-
-save(joinpath(figures_path, "IPS_single-day.png"), f)
-save(joinpath(figures_path, "IPS_single-day.pdf"), f)
-save(joinpath(figures_path, "IPS_single-day.eps"), f)
-
-f = Figure()
-ax = Axis(f[1,1], xlabel="time / (hour)\n$(Date(Ztemp.start_time))", ylabel="Temperature / (°C)")
-temp=lines!(ax, times(Ztemp)./(60*60), Ztemp.z)
-f
-
-save(joinpath(figures_path, "BME_single-day.png"), f)
-save(joinpath(figures_path, "BME_single-day.pdf"), f)
-save(joinpath(figures_path, "BME_single-day.eps"), f)
 
 
 
